@@ -1,0 +1,214 @@
+---
+title: "Medical Charges Analysis"
+author: "Fatimah Alawad"
+date: "10/3/2021"
+output: rmdformats::downcute
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+## What factors affect the medical charges?
+
+
+The dataset is from kaggle and it contains the following variables:
+
+| Variable| Description                |
+|---------|----------------------------|
+|age      | age of primary beneficiary |
+|sex      |insurance contractor gender, female, male|
+|bmi      | Body mass index, providing an understanding of body, weights that are relatively high or low relative to height,objective index of body weight (kg / m ^2) using the ratio of height to weight, ideally 18.5 to 24.9|
+|children |Number of children covered by health insurance / Number of dependents                                        |
+|smoker   | Smoking                    |
+|region   | the beneficiary's residential area in the US, northeast, southeast, southwest, northwest.                  |
+|charges| Individual medical costs billed by health insurance |
+
+
+
+
+```{r}
+library(MASS)
+library(ISLR)
+library(tidyverse)
+
+insurance <- read.csv("~/Desktop/insurance.csv")
+# summary(insurance)
+# str(insurance)
+```
+
+
+
+## Exploring the variables
+```{r}
+#Exploring the variable Age which is the age of patients
+summary(insurance$age) 
+ggplot(data=insurance, aes(age, charges)) +
+  geom_point(color = "pink", alpha = 0.5) +
+  theme_light()
+```
+From the graph, we can see that the charges increase as age goes up.
+
+
+```{r}
+#Exploring the variable Children which is the number of children the patient has
+summary(insurance$children) 
+ggplot(data=insurance, aes(children, charges)) +
+  geom_jitter(aes(color = children), alpha = 0.7) 
+```
+This plot illustrates that families with 4 and 5 children have less charges than families with less children(which is weird).
+
+```{r}
+#Exploring the variable bmi which is the Body Mass Index
+summary(insurance$bmi)
+ggplot(data=insurance, aes(bmi, charges)) +
+  geom_point(color = "blue", alpha = 0.5) 
+```
+
+From this plot, we can see that as bmi increases, charges increases.
+
+```{r}
+#Exploring the impact of gender on the insurance charges
+table(insurance$sex)
+ggplot(data = insurance,aes(sex,charges)) + geom_boxplot() +
+  theme_classic() + ggtitle("Boxplot of Medical Charges per Sex")
+```
+As we can guess, there is no much differences between the insurance charges of males and females.
+
+
+```{r}
+#Exploring the impact of smoking status on the insurance charges
+table(insurance$smoker)  
+ggplot(data = insurance,aes(smoker,charges)) + geom_boxplot() +
+  theme_classic() + ggtitle("Boxplot of Medical Charges per Smoking status")
+```
+
+We can see that smokers have higher charges than non smoker, which tells that smoking may have a negative impact on smokers' health!!
+
+## Building a model that predict the medical charges
+```{r}
+#Fitting the full model
+fit1=lm(charges~age+bmi+children+smoker+region+sex,data=insurance)
+fit1
+summary(fit1)
+
+#Since Sex is not statistically significant we will delete it. 
+fit=lm(charges~age+bmi+children+smoker+region,data=insurance)
+fit
+summary(fit)
+#Since the differences between Residual standard errors and Adjusted R-squared for the two models are close, we will choose the simplest model.
+
+```
+
+
+## Chicking the model 
+```{r}
+#Model assumption checking/model diagnostics
+par(mfrow=c(2,2))
+plot(fit)
+```
+The Residual versus Fitted plot shows that there is a concern that the relationship is non-linear.
+
+The Normal Q-Q plot shows that the residuals are not normally distributed.
+
+The Scale - Location plot shows that the assumption of equal variance is satisfied since the points are randomly distributed except the lower left points.
+
+From Residuals vs Leverage plot, we can see that observation 1048 could be a potential influential observation.
+
+
+
+
+#Since there is a concern that the relationship is non-linear, I can transform the age variable to the age square since the graph of age is not linear.
+
+
+```{r}
+fit.s=lm(charges~age^2+bmi+children+smoker+region,data=insurance)
+fit.s
+summary(fit.s)
+par(mfrow=c(2,2))
+plot(fit.s)
+```
+Now we can see that, The Residual versus Fitted plot shows that the relationship is linear.
+
+The Normal Q-Q plot shows that the residuals are not normally distributed.
+
+The Scale - Location plot shows that the there are two clusters, but assumption of equal variance is satisfied since the points are randomly distributed around the line.
+
+From Residuals vs Leverage plot, we can see that there are many obversations could be potential influential observations.
+
+
+
+## To improve the model, we will check if there is an interaction between the explanatory variables.
+
+```{r}
+library(sjPlot)
+lm.int2 = lm(charges ~ bmi*smoker, data=insurance) 
+summary(lm.int2)
+plot_model(lm.int2, type="int")
+```
+We can see that the interaction effect is statistically significant. From the plot, we can see that there is interaction between bmi and smoker status.
+
+
+
+
+## Adding the interaction between bmi and smoker status to the model
+```{r}
+#Adding the interaction to our model
+fit.int=lm(charges~age^2+bmi+children+smoker+region+bmi*smoker,data=insurance)
+fit.int
+summary(fit.int)
+```
+
+We can see that the Adjusted R-squared is higher!
+
+## Determine the prediction errors
+## Validation set approach,
+```{r}
+set.seed(1) 
+train=sample(1338,1100)  
+train.dat=insurance[train,] 
+dim(train.dat)
+test.dat = insurance[-train, ] 
+fit1=lm(charges~age^2+bmi+children+smoker+region+bmi*smoker,data=train.dat) 
+mse.test = mean((test.dat$charges - predict(fit1,test.dat))^2) 
+mse.test
+```
+
+The test error for the regression model for charges on age^2, BMI, children, smoker status, BMI*smoker, and region based on the validation set approach is 28718309.
+
+
+## K- fold corss validation approach
+
+```{r}
+kfolds=5 
+
+folds <- rep_len(1:kfolds, nrow(insurance))
+mse.cv= rep(0,kfolds) 
+
+for(k in 1:kfolds) {
+fold <- which(folds == k)
+train.dat <- insurance[-fold,]
+test.dat <- insurance[fold,]
+
+fit1=lm(charges~age^2+bmi+children+smoker+region+bmi*smoker,data=train.dat) 
+  
+mse.cv[k] = mean((test.dat$charges - predict(fit1,test.dat))^2)
+CV.error.fit = mean(mse.cv) 
+}
+CV.error.fit
+```
+
+The test error for the regression model for charges on age^2, BMI, children, smoker status, BMI*smoker, and region based on the 5-fold cross-validation approach is 23639330.
+
+We can see that the 5-fold cross-validation approach produces a lower error than the validation set approach.
+
+## LOOCV approach
+```{r}
+library (boot)
+set.seed(2)
+charges.lm=glm(charges~age^2+bmi+children+smoker+region+bmi*smoker,data=insurance)
+cv.err =cv.glm(insurance, charges.lm) 
+names(cv.err)
+cv.err$delta[1]
+```
+
+The LOOCV approach produces a lower error than the validation set approaches and a higher error than the 5-fold cross-validation approach. 
